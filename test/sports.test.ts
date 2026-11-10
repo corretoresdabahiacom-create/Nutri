@@ -1,0 +1,118 @@
+import { describe, expect, it } from 'vitest'
+import { get, newOrg, post, put, del, unit, userWithRole } from './helpers'
+
+async function food(t: string, name: string, extra: Record<string, unknown> = {}) {
+  const r = await post('/api/foods', t, { name, source: 'DEMO fictício', energy_kcal: 100, protein_g: 10, carb_g: 20, fat_g: 5, fiber_g: 2, sodium_mg: 50, ...extra })
+  expect(r.status).toBe(201)
+  return r.data.id as string
+}
+async function athlete(t: string, extra: Record<string, unknown> = {}) {
+  const r = await post('/api/athletes', t, { name: 'Atleta Demo', sport: 'natação', weight_kg: 70, ...extra })
+  expect(r.status).toBe(201)
+  return r.data.id as string
+}
+
+describe('módulo esportivo', () => {
+  it('cifra dados clínicos do atleta e devolve decifrado ao usuário autorizado', async () => {
+    const o = await newOrg()
+    const id = await athlete(o.token, { medications: ['Medicamento fictício'], allergies: ['Amendoim'], clinical_history: 'Lesão demo' })
+    const r = await get(`/api/athletes/${id}`, o.token)
+    expect(r.data.medications).toEqual(['Medicamento fictício'])
+    expect(r.data.clinical_history).toBe('Lesão demo')
+    const raw = await (await import('cloudflare:test')).env.DB.prepare('SELECT medications FROM athletes WHERE id=?').bind(id).first<any>()
+    expect(raw.medications.startsWith('v1.')).toBe(true)
+    expect(raw.medications).not.toContain('Medicamento')
+  })
+  it('isola atletas entre organizações (404)', async () => {
+    const a = await newOrg(), b = await newOrg()
+    const id = await athlete(a.token)
+    expect((await get(`/api/athletes/${id}`, b.token)).status).toBe(404)
+    expect((await get('/api/athletes', b.token)).data.items.length).toBe(0)
+    expect((await post('/api/assessments', b.token, { subject_type: 'athlete', subject_id: id, date: '2026-01-01' })).status).toBe(404)
+  })
+  it('respeita RBAC: auxiliar/estoquista não acessa dados esportivos', async () => {
+    const o = await newOrg()
+    const id = await athlete(o.token)
+    const est = await userWithRole(o.token, 'estoquista')
+    expect((await get(`/api/athletes/${id}`, est.token)).status).toBeGreaterThanOrEqual(403)
+    const ns = await userWithRole(o.token, 'nutricionista_esportivo')
+    expect((await get(`/api/athletes/${id}`, ns.token)).status).toBe(200)
+  })
+  it('restringe atleta por unidade do usuário', async () => {
+    const o = await newOrg()
+    const u1 = await unit(o.token, 'Clínica 1', 'clinic'), u2 = await unit(o.token, 'Clínica 2', 'clinic')
+    const at2 = await athlete(o.token, { unit_id: u2 })
+    const nut = await userWithRole(o.token, 'nutricionista_esportivo', u1)
+    expect((await get(`/api/athletes/${at2}`, nut.token)).status).toBe(404)
+  })
+  it('avaliações: cria e compara evolução', async () => {
+    const o = await newOrg()
+    const id = await athlete(o.token)
+    const a1 = await post('/api/assessments', o.token, { subject_type: 'athlete', subject_id: id, date: '2026-01-01', weight_kg: 80, body_fat_pct: 20, circumferences: { cintura: 90 } })
+    const a2 = await post('/api/assessments', o.token, { subject_type: 'athlete', subject_id: id, date: '2026-03-01', weight_kg: 77, body_fat_pct: 17.5, circumferences: { cintura: 86 } })
+    expect(a1.status).toBe(201)
+    const cmp = await get(`/api/assessments-compare?a=${a2.data.id}&b=${a1.data.id}`, o.token)
+    expect(cmp.status).toBe(200)
+    expect(cmp.data.diff.weight_kg.delta).toBe(-3)
+    expect(cmp.data.diff['circumferences.cintura'].delta).toBe(-4)
+    expect(cmp.data.days).toBe(59)
+  })
+  it('metas: calcula progresso', async () => {
+    const o = await newOrg()
+    const id = await athlete(o.token)
+    await post('/api/goals', o.token, { subject_type: 'athlete', subject_id: id, metric: 'peso', start_value: 80, current: 76, target: 72 })
+    const r = await get(`/api/goals-progress?subject_type=athlete&subject_id=${id}`, o.token)
+    expect(r.data.items[0].progress_pct).toBe(50)
+  })
+  it('suplementos: substância proibida exige justificativa; aviso de medicamentos', async () => {
+    const o = await newOrg()
+    const id = await athlete(o.token, { medications: ['Med X'] })
+    await post('/api/substance-rules', o.token, { name: 'Substância Demo', severity: 'prohibited', source: 'Lista DEMO fictícia' })
+    const body = { subject_type: 'athlete', subject_id: id, product: 'Produto', ingredient: 'substância demo', dose: '1 dose' }
+    const blocked = await post('/api/supplements', o.token, body)
+    expect(blocked.status).toBe(409)
+    expect(blocked.data.error.code).toBe('prohibited_substance')
+    const ok = await post('/api/supplements', o.token, { ...body, override_reason: 'Uso terapêutico documentado pelo médico' })
+    expect(ok.status).toBe(201)
+    expect(ok.data.warnings.some((w: any) => w.severity === 'prohibited')).toBe(true)
+    expect(ok.data.warnings.some((w: any) => w.type === 'medicamentos_informados')).toBe(true)
+  })
+  it('plano alimentar: totais, conflito de alergia bloqueia aprovação, aprovado é imutável e revisão cria rascunho', async () => {
+    const o = await newOrg()
+    const id = await athlete(o.token, { allergies: ['Leite'] })
+    const arroz = await food(o.token, 'Arroz demo', { energy_kcal: 130, protein_g: 2.5 })
+    const queijo = await food(o.token, 'Queijo demo', { allergens: ['Leite'] })
+    const plan = await post('/api/meal-plans', o.token, { subject_type: 'athlete', subject_id: id, name: 'Plano 1', items: [{ meal_name: 'Almoço', food_id: arroz, qty_g: 200 }, { meal_name: 'Lanche', food_id: queijo, qty_g: 50 }] })
+    expect(plan.status).toBe(201)
+    expect(plan.data.nutrition_total.energy_kcal).toBe(310)
+    expect(plan.data.allergy_conflicts.length).toBe(1)
+    const bad = await post(`/api/meal-plans/${plan.data.id}/approve`, o.token)
+    expect(bad.status).toBe(409)
+    const upd = await put(`/api/meal-plans/${plan.data.id}`, o.token, { items: [{ meal_name: 'Almoço', food_id: arroz, qty_g: 200 }] })
+    expect(upd.data.allergy_conflicts.length).toBe(0)
+    expect((await post(`/api/meal-plans/${plan.data.id}/approve`, o.token)).status).toBe(200)
+    expect((await put(`/api/meal-plans/${plan.data.id}`, o.token, { name: 'x' })).status).toBe(409)
+    const rev = await post(`/api/meal-plans/${plan.data.id}/revise`, o.token)
+    expect(rev.status).toBe(201)
+    expect(rev.data.status).toBe('draft')
+    expect(rev.data.items.length).toBe(1)
+  })
+  it('painel esportivo devolve contagens reais', async () => {
+    const o = await newOrg()
+    const id = await athlete(o.token)
+    await post('/api/assessments', o.token, { subject_type: 'athlete', subject_id: id, date: new Date().toISOString().slice(0, 10), weight_kg: 70 })
+    const d = await get('/api/dashboard/sports', o.token)
+    expect(d.status).toBe(200)
+    expect(d.data.active_athletes).toBe(1)
+    expect(d.data.assessments_last_30d).toBe(1)
+  })
+  it('auditoria registra leitura de dados clínicos sem conteúdo', async () => {
+    const o = await newOrg()
+    const id = await athlete(o.token, { clinical_history: 'SEGREDO-CLINICO' })
+    await get(`/api/athletes/${id}`, o.token)
+    const au = await get('/api/audit', o.token)
+    const txt = JSON.stringify(au.data)
+    expect(txt).toContain('athletes')
+    expect(txt).not.toContain('SEGREDO-CLINICO')
+  })
+})
