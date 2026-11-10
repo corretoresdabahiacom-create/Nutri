@@ -8,8 +8,8 @@ export async function runDueJobs(env: Env, now = new Date()): Promise<{ publishe
   const ex = await env.DB.prepare("UPDATE menus SET status='expired', updated_at=? WHERE status='published' AND valid_until IS NOT NULL AND valid_until<?").bind(iso, iso.slice(0, 10)).run()
   // lembretes de agenda: eventos que começam dentro da janela de lembrete e ainda não notificados
   const due = (await env.DB.prepare(
-    "SELECT e.* FROM events e WHERE e.status='scheduled' AND e.reminder_minutes IS NOT NULL AND e.starts_at<=datetime(?, '+' || e.reminder_minutes || ' minutes') AND e.starts_at>=? AND NOT EXISTS (SELECT 1 FROM notifications n WHERE n.ref_type='event' AND n.ref_id=e.id AND n.kind='reminder')"
-  ).bind(iso.slice(0, 19).replace('T', ' '), iso).all<any>()).results
+    "SELECT e.* FROM events e WHERE e.status='scheduled' AND e.reminder_minutes IS NOT NULL AND julianday(e.starts_at)<=julianday(?)+e.reminder_minutes/1440.0 AND julianday(e.starts_at)>=julianday(?) AND NOT EXISTS (SELECT 1 FROM notifications n WHERE n.ref_type='event' AND n.ref_id=e.id AND n.kind='reminder')"
+  ).bind(iso, iso).all<any>()).results
   let reminders = 0
   for (const e of due) {
     const targets: string[] = [e.owner_user_id, ...JSON.parse(e.participants || '[]')].filter(Boolean)

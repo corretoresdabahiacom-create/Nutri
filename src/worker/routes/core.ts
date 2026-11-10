@@ -73,7 +73,8 @@ mountCrud(core, {
 })
 
 // ---------- papéis ----------
-const actorHolds = (a: AuthCtx, perms: string[]) => perms.every((p) => a.memberships.some((m) => m.perms.has(p)))
+const SELF_SERVICE = new Set(['portal.self'])
+const actorHolds = (a: AuthCtx, perms: string[]) => perms.every((p) => SELF_SERVICE.has(p) || a.memberships.some((m) => m.perms.has(p)))
 function cleanPerms(v: unknown): string[] {
   if (!Array.isArray(v)) throw bad('invalid_field', 'permissions deve ser lista')
   const out = [...new Set(v.map(String))]
