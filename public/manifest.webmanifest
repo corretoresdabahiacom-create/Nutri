@@ -1,0 +1,2 @@
+{ "name": "NutriVida Pro", "short_name": "NutriVida", "start_url": "/", "display": "standalone", "background_color": "#fffdf5", "theme_color": "#2f7d32",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }] }

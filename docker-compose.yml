@@ -1,0 +1,12 @@
+services:
+  nutrivida:
+    build: .
+    ports: ["8787:8787"]
+    environment:
+      # Gere com: openssl rand -base64 32  (guarde em local seguro; perder a chave = perder os dados cifrados)
+      DATA_KEY: ${DATA_KEY:?defina DATA_KEY}
+      PLATFORM_ADMIN_EMAIL: ${PLATFORM_ADMIN_EMAIL:-}
+    volumes:
+      - nutrivida-data:/app/.wrangler/state
+volumes:
+  nutrivida-data:

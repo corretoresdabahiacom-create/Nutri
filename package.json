@@ -9,10 +9,11 @@
     "build": "vite build",
     "dev": "npm run build && wrangler dev",
     "deploy": "npm run build && wrangler deploy",
-    "typecheck": "tsc --noEmit -p tsconfig.worker.json && tsc --noEmit -p tsconfig.web.json",
+    "typecheck": "tsc -p tsconfig.worker.json && tsc -p tsconfig.web.json",
     "test": "vitest run",
     "db:migrate:local": "wrangler d1 migrations apply nutrivida --local",
-    "db:migrate:remote": "wrangler d1 migrations apply nutrivida --remote"
+    "db:migrate:remote": "wrangler d1 migrations apply nutrivida --remote",
+    "seed": "node --experimental-strip-types scripts/seed-demo.ts"
   },
   "dependencies": {
     "hono": "^4",

@@ -10,6 +10,7 @@ import { hospital } from './routes/hospital'
 import { uan } from './routes/uan'
 import { menus, publicMenus } from './routes/menus'
 import { ops } from './routes/ops'
+import { exportsRoutes } from './routes/exports'
 import { runDueJobs } from './lib/jobs'
 
 const app = new Hono<AppEnv>()
@@ -37,6 +38,7 @@ priv.route('/', hospital)
 priv.route('/', uan)
 priv.route('/', menus)
 priv.route('/', ops)
+priv.route('/', exportsRoutes)
 api.route('/', priv)
 
 app.route('/api', api)
