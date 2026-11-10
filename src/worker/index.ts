@@ -8,6 +8,8 @@ import { recipes } from './routes/recipes'
 import { sports } from './routes/sports'
 import { hospital } from './routes/hospital'
 import { uan } from './routes/uan'
+import { menus, publicMenus } from './routes/menus'
+import { runDueJobs } from './lib/jobs'
 
 const app = new Hono<AppEnv>()
 
@@ -21,6 +23,7 @@ app.use('/api/*', async (c, next) => {
 
 const api = new Hono<AppEnv>()
 api.route('/', authPublic)
+api.route('/', publicMenus)
 
 const priv = new Hono<AppEnv>()
 priv.use('*', requireAuth)
@@ -31,6 +34,7 @@ priv.route('/', recipes)
 priv.route('/', sports)
 priv.route('/', hospital)
 priv.route('/', uan)
+priv.route('/', menus)
 api.route('/', priv)
 
 app.route('/api', api)
@@ -50,7 +54,7 @@ app.notFound((c) => {
 export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    // processamento assíncrono de tarefas (ver lib/jobs.ts)
+    ctx.waitUntil(runDueJobs(env))
   }
 }
 export type { Env }
