@@ -7,6 +7,7 @@ import { foods } from './routes/foods'
 import { recipes } from './routes/recipes'
 import { sports } from './routes/sports'
 import { hospital } from './routes/hospital'
+import { uan } from './routes/uan'
 
 const app = new Hono<AppEnv>()
 
@@ -29,6 +30,7 @@ priv.route('/', foods)
 priv.route('/', recipes)
 priv.route('/', sports)
 priv.route('/', hospital)
+priv.route('/', uan)
 api.route('/', priv)
 
 app.route('/api', api)

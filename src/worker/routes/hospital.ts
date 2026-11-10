@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { type AppCtx, type AppEnv, assertCan, audit, can, need, needAny, unitScope } from '../lib/auth'
+import { type AppCtx, type AppEnv, assertCan, audit, can, need, needAny, requireUnit, unitScope } from '../lib/auth'
 import { f, mountCrud } from '../lib/crud'
 import { guardSubject } from '../lib/subject'
 import { recipeCalc } from '../lib/calc'
@@ -179,8 +179,8 @@ async function recipeOk(c: AppCtx, recipeId: unknown) {
 // ---------- pedidos de refeição ----------
 hospital.post('/meal-orders/generate', need('hospital.prescribe'), async (c) => {
   const a = c.get('auth'), b = await readBody(c)
-  const unitId = String(b.unit_id ?? ''), date = String(b.date ?? today())
-  assertCan(a, 'hospital.prescribe', unitId)
+  const date = String(b.date ?? today())
+  const unitId = await requireUnit(c, 'hospital.prescribe', b.unit_id)
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw bad('invalid_field', 'date inválida')
   const meals: any[] = Array.isArray(b.meals) ? b.meals : []
   if (!meals.length) throw bad('missing_field', 'Informe meals: [{meal_type, recipe_id, scheduled_time?}]')
@@ -341,8 +341,8 @@ hospital.get('/meal-orders/:id/label', need('hospital.read'), async (c) => {
 // ---------- mapas ----------
 hospital.get('/hospital/meal-map', need('hospital.read'), async (c) => {
   const a = c.get('auth'), q = new URL(c.req.url).searchParams
-  const unitId = q.get('unit_id') ?? '', date = q.get('date') ?? today()
-  assertCan(a, 'hospital.read', unitId)
+  const date = q.get('date') ?? today()
+  const unitId = await requireUnit(c, 'hospital.read', q.get('unit_id'))
   const rows = (await c.env.DB.prepare(`SELECT o.*, b.code AS bed_code FROM meal_orders o LEFT JOIN beds b ON b.id=o.bed_id WHERE o.org_id=? AND o.unit_id=? AND o.date=? AND o.status<>'cancelled' ORDER BY o.meal_type, b.code`).bind(a.orgId, unitId, date).all<any>()).results
   const map: Record<string, any[]> = {}
   for (const o of rows) {
@@ -355,8 +355,8 @@ hospital.get('/hospital/meal-map', need('hospital.read'), async (c) => {
 })
 hospital.get('/hospital/production-map', needAny('hospital.produce', 'hospital.read'), async (c) => {
   const a = c.get('auth'), q = new URL(c.req.url).searchParams
-  const unitId = q.get('unit_id') ?? '', date = q.get('date') ?? today()
-  assertCan(a, 'hospital.read', unitId)
+  const date = q.get('date') ?? today()
+  const unitId = await requireUnit(c, 'hospital.read', q.get('unit_id'))
   const rows = (await c.env.DB.prepare(`SELECT o.meal_type, o.recipe_id, r.name AS recipe, COUNT(*) AS portions, SUM(CASE WHEN o.status IN ('released','produced','delivered') THEN 1 ELSE 0 END) AS released
     FROM meal_orders o LEFT JOIN recipes r ON r.id=o.recipe_id WHERE o.org_id=? AND o.unit_id=? AND o.date=? AND o.status<>'cancelled' GROUP BY o.meal_type, o.recipe_id ORDER BY o.meal_type`).bind(a.orgId, unitId, date).all<any>()).results
   return c.json({ unit_id: unitId, date, items: rows, note: 'Somente pedidos liberados entram em produção' })

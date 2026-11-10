@@ -1,5 +1,5 @@
 import type { Context, MiddlewareHandler } from 'hono'
-import { type Env, HttpError, clientIp, forbidden, nowIso, parseJson, uid } from './util'
+import { type Env, HttpError, clientIp, forbidden, notFound, nowIso, parseJson, uid } from './util'
 import { modulesForPerm } from './rbac'
 import { randomToken, sha256Hex } from './crypto'
 
@@ -188,4 +188,14 @@ export async function rateLimit(env: Env, key: string, limit: number, windowSec:
   if (row.count >= limit) return false
   await env.DB.prepare('UPDATE rate_limits SET count=count+1 WHERE key=?').bind(key).run()
   return true
+}
+
+/** Garante que a unidade pertence à organização da sessão (404 caso contrário) e que o usuário tem a permissão nela. */
+export async function requireUnit(c: AppCtx, perm: string, unitId: unknown): Promise<string> {
+  const id = String(unitId ?? '')
+  const a = c.get('auth')
+  const ok = id && (await c.env.DB.prepare('SELECT 1 FROM units WHERE id=? AND org_id=?').bind(id, a.orgId).first())
+  if (!ok) throw notFound('Unidade')
+  assertCan(a, perm, id)
+  return id
 }
