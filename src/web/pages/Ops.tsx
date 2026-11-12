@@ -14,10 +14,20 @@ export function Stock() {
       {can('stock.write') && <form className="card form" onSubmit={entry}><div className="field"><label>Alimento</label><select value={f.food_id} onChange={(e) => setF({ ...f, food_id: e.target.value })} required><option value="">—</option>{(foods.data?.items ?? []).map((x: any) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></div>
         {(['qty_g', 'lot_code', 'unit_cost_per_kg'] as const).map((k) => <div className="field" key={k}><label>{({ qty_g: 'Quantidade (g)', lot_code: 'Lote', unit_cost_per_kg: 'Custo R$/kg' })[k]}</label><input value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} required={k !== 'unit_cost_per_kg'} /></div>)}
         <div className="field"><label>Validade</label><input type="date" value={f.expiry} onChange={(e) => setF({ ...f, expiry: e.target.value })} /></div><div className="field"><label>&nbsp;</label><button type="submit">Registrar entrada</button></div></form>}
+      {can('stock.write') && <Transfer unit={unit} foods={foods.data?.items ?? []} onDone={bal.reload} setErr={setErr} />}
       <div className="tw"><table><thead><tr><th>Alimento</th><th>Disponível (g)</th><th>Vencido (g)</th><th>Vence ≤7d (g)</th><th>Mínimo</th><th>Valor</th></tr></thead>
         <tbody>{(bal.data?.items ?? []).map((i: any) => <tr key={i.food_id}><td>{i.name} {i.below_min && <Badge v="warning" text="abaixo do mínimo" />}</td><td>{fmt(i.available_g, 0)}</td><td>{i.expired_g > 0 ? <Badge v="critical" text={fmt(i.expired_g, 0)} /> : 0}</td><td>{fmt(i.expiring_g, 0)}</td><td>{fmt(i.min_g, 0)}</td><td>{money(i.value)}</td></tr>)}</tbody></table></div>
     </Page>
   )
+}
+
+function Transfer({ unit, foods, onDone, setErr }: { unit: string; foods: any[]; onDone: () => void; setErr: (e: unknown) => void }) {
+  const [t, setT] = useState({ to: '', food_id: '', qty: '' }), [ok, setOk] = useState('')
+  const go = async () => { setErr(null); setOk(''); try { await post('/stock/transfers', { from_unit_id: unit, to_unit_id: t.to, food_id: t.food_id, qty_g: Number(t.qty) }); setOk('Transferência registrada (FEFO, lotes preservados).'); onDone() } catch (x) { setErr(x) } }
+  return <details className="card"><summary>Transferir entre unidades</summary><div className="row" style={{ marginTop: 8 }}>
+    <div style={{ minWidth: 200 }}><UnitSelect value={t.to} onChange={(v) => setT({ ...t, to: v })} allowEmpty /></div>
+    <select value={t.food_id} onChange={(e) => setT({ ...t, food_id: e.target.value })}><option value="">Alimento…</option>{foods.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
+    <input style={{ width: 120 }} type="number" placeholder="Qtd (g)" value={t.qty} onChange={(e) => setT({ ...t, qty: e.target.value })} /><button disabled={!t.to || !t.food_id || !t.qty || t.to === unit} onClick={go}>Transferir da unidade selecionada</button></div>{ok && <div className="okmsg">{ok}</div>}</details>
 }
 
 export function Production() {

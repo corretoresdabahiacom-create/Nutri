@@ -14,6 +14,10 @@ import { Production, Quality, Stock } from './pages/Ops'
 import { Settings } from './pages/Settings'
 import { Subject } from './pages/Subject'
 import { Portal } from './pages/Portal'
+import { Checklists } from './pages/Quality2'
+import { Purchasing } from './pages/Purchasing'
+import { Access } from './pages/Access'
+import { Imports } from './pages/Imports'
 
 const SPECIAL: { path: string; label: string; group: string; perm: string; el: React.ReactElement }[] = [
   { path: 'recipes', label: 'Fichas técnicas', group: 'Cadastros', perm: 'recipes.read', el: <Recipes /> },
@@ -23,7 +27,11 @@ const SPECIAL: { path: string; label: string; group: string; perm: string; el: R
   { path: 'meal-orders', label: 'Pedidos de refeição', group: 'Hospitalar', perm: 'hospital.read', el: <MealOrders /> },
   { path: 'stock', label: 'Estoque', group: 'UAN', perm: 'stock.read', el: <Stock /> },
   { path: 'production', label: 'Produção', group: 'UAN', perm: 'production.read', el: <Production /> },
-  { path: 'quality', label: 'Qualidade', group: 'Qualidade', perm: 'quality.read', el: <Quality /> }
+  { path: 'purchasing', label: 'Compras', group: 'UAN', perm: 'purchase.read', el: <Purchasing /> },
+  { path: 'quality', label: 'Qualidade', group: 'Qualidade', perm: 'quality.read', el: <Quality /> },
+  { path: 'checklists', label: 'Checklists', group: 'Qualidade', perm: 'quality.read', el: <Checklists /> },
+  { path: 'imports', label: 'Importar CSV', group: 'Cadastros', perm: 'foods.write', el: <Imports /> },
+  { path: 'access', label: 'Usuários e papéis', group: 'Conta', perm: 'roles.manage', el: <Access /> }
 ]
 
 export function App() {

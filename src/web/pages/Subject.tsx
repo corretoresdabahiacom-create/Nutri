@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { get, post } from '../api'
 import { Badge, Err, Page, fmt, today, useLoad, useMe } from '../ui'
+import { PlanEditor } from './PlanEditor'
 
 /** Visão de um atleta/paciente: avaliações, comparação, suplementos (com alertas) e planos alimentares. */
 export function Subject({ type }: { type: 'athlete' | 'patient' }) {
   const { can } = useMe()
   const list = useLoad(() => get(type === 'athlete' ? '/athletes' : '/patients'), [type])
-  const [id, setId] = useState(''), [err, setErr] = useState<unknown>(null)
+  const [id, setId] = useState(''), [err, setErr] = useState<unknown>(null), [edit, setEdit] = useState<any>(null)
   const q = `subject_type=${type}&subject_id=${id}`
   const ass = useLoad(() => (id ? get(`/assessments?${q}`) : Promise.resolve({ items: [] })), [id])
   const sup = useLoad(() => (id && type === 'athlete' ? get(`/supplements?${q}`) : Promise.resolve({ items: [] })), [id])
@@ -31,8 +32,10 @@ export function Subject({ type }: { type: 'athlete' | 'patient' }) {
           <div className="tw"><table><thead><tr><th>Produto</th><th>Dose</th><th>Alertas</th></tr></thead><tbody>{(sup.data?.items ?? []).map((x: any) => <tr key={x.id}><td>{x.product}<br /><small className="muted">{x.ingredient}</small></td><td>{x.dose}</td><td>{(x.warnings ?? []).map((w: any, i: number) => <div key={i}><Badge v={w.severity === 'prohibited' ? 'critical' : w.severity === 'warning' ? 'warning' : 'ok'} text={w.severity} /> {w.name ?? w.message} {w.source && <small className="muted">({w.source})</small>}</div>)}</td></tr>)}</tbody></table></div></>}
         <h2>Planos alimentares</h2>
         <div className="tw"><table><thead><tr><th>Nome</th><th>Status</th><th></th></tr></thead><tbody>{(plans.data?.items ?? []).map((p: any) => <tr key={p.id}><td>{p.name}</td><td><Badge v={p.status} /></td><td className="row">
-          {p.status === 'draft' && <button onClick={() => run(() => post(`/meal-plans/${p.id}/approve`), plans.reload)}>Aprovar</button>}{p.status !== 'draft' && write && <button className="sec" onClick={() => run(() => post(`/meal-plans/${p.id}/revise`), plans.reload)}>Revisar</button>}</td></tr>)}</tbody></table></div>
-        <p className="muted">Planos são montados via API/importação nesta versão MVP; aprovação bloqueia itens que conflitam com alergias registradas.</p></>}
+          {p.status === 'draft' && write && <button className="sec" onClick={async () => setEdit(await get(`/meal-plans/${p.id}`))}>Editar</button>}{p.status === 'draft' && <button onClick={() => run(() => post(`/meal-plans/${p.id}/approve`), plans.reload)}>Aprovar</button>}{p.status !== 'draft' && write && <button className="sec" onClick={() => run(() => post(`/meal-plans/${p.id}/revise`), plans.reload)}>Revisar</button>}</td></tr>)}</tbody></table></div>
+        {write && !edit && <button style={{ marginTop: 8 }} onClick={() => setEdit({})}>+ Novo plano</button>}
+        {edit && <PlanEditor key={edit.id ?? 'new'} type={type} subjectId={id} plan={edit.id ? edit : undefined} onSaved={plans.reload} onCancel={() => setEdit(null)} />}
+        <p className="muted">A aprovação bloqueia itens que conflitam com alergias registradas.</p></>}
     </Page>
   )
 }
