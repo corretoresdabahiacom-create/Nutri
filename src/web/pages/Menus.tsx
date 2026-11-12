@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { downloadCsv, get, post, put } from '../api'
+import { downloadCsv, downloadFile, get, post, put } from '../api'
 import { Badge, Err, Page, UnitSelect, money, useLoad, useMe } from '../ui'
 
 const MEALS = ['cafe', 'colacao', 'almoco', 'lanche', 'jantar', 'ceia']
@@ -41,7 +41,7 @@ function MenuEditor({ id, onChange }: { id: string; onChange: () => void }) {
     <div className="card">
       <div className="top"><h2 style={{ margin: 0 }}>{data.name} <Badge v={data.status} text={`${data.status} • v${data.version}`} /></h2>
         <div className="row no-print">
-          <button className="sec" onClick={() => window.print()}>Imprimir / PDF</button><button className="sec" onClick={() => downloadCsv(`/menus/${id}/export.csv`, 'cardapio.csv').catch(setErr)}>CSV</button>
+          <button className="sec" onClick={() => downloadFile(`/menus/${id}/export.pdf`, 'cardapio.pdf').catch(setErr)}>Baixar PDF</button><button className="sec" onClick={() => window.print()}>Imprimir</button><button className="sec" onClick={() => downloadCsv(`/menus/${id}/export.csv`, 'cardapio.csv').catch(setErr)}>CSV</button>
           {can('menus.write') && <button className="sec" onClick={() => act(() => post(`/menus/${id}/duplicate`, { shift_days: 7 }))}>Duplicar (+7 dias)</button>}
           {can('menus.write') && !draft && <button className="sec" onClick={() => act(() => post(`/menus/${id}/revise`))}>Nova versão</button>}
           {can('menus.approve') && draft && <button onClick={() => act(() => post(`/menus/${id}/approve`))}>Aprovar</button>}

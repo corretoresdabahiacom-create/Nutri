@@ -1,7 +1,8 @@
+import { retryOutbox } from './outbound'
 import { type Env, nowIso, uid } from './util'
 
 /** Rotinas periódicas (cron a cada 5 min): publicação agendada de cardápios, vencimento de validade e lembretes de agenda. */
-export async function runDueJobs(env: Env, now = new Date()): Promise<{ published: number; expired: number; reminders: number }> {
+export async function runDueJobs(env: Env, now = new Date()): Promise<{ published: number; expired: number; reminders: number; outbox_retried: number }> {
   const iso = now.toISOString()
   const pub = await env.DB.prepare("UPDATE menus SET status='published', updated_at=? WHERE status='scheduled' AND publish_at IS NOT NULL AND publish_at<=?").bind(iso, iso).run()
   const published = pub.meta.changes ?? 0
@@ -19,5 +20,6 @@ export async function runDueJobs(env: Env, now = new Date()): Promise<{ publishe
     }
     if (!targets.length) await env.DB.prepare("INSERT INTO notifications (id,org_id,user_id,title,body,kind,ref_type,ref_id,created_at,updated_at) VALUES (?,?,NULL,?,?,'reminder','event',?,?,?)").bind(uid(), e.org_id, `Lembrete: ${e.title}`, e.starts_at, e.id, nowIso(), nowIso()).run()
   }
-  return { published, expired: ex.meta.changes ?? 0, reminders }
+  const outbox_retried = await retryOutbox(env).catch(() => 0)
+  return { published, expired: ex.meta.changes ?? 0, reminders, outbox_retried }
 }

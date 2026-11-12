@@ -11,6 +11,9 @@ import { uan } from './routes/uan'
 import { menus, publicMenus } from './routes/menus'
 import { ops } from './routes/ops'
 import { exportsRoutes } from './routes/exports'
+import { trends } from './routes/trends'
+import { integrationsRoutes } from './routes/integrations'
+import { inbound, publicCalendar } from './routes/inbound'
 import { runDueJobs } from './lib/jobs'
 
 const app = new Hono<AppEnv>()
@@ -26,6 +29,8 @@ app.use('/api/*', async (c, next) => {
 const api = new Hono<AppEnv>()
 api.route('/', authPublic)
 api.route('/', publicMenus)
+api.route('/', inbound)
+api.route('/', publicCalendar)
 
 const priv = new Hono<AppEnv>()
 priv.use('*', requireAuth)
@@ -39,6 +44,8 @@ priv.route('/', uan)
 priv.route('/', menus)
 priv.route('/', ops)
 priv.route('/', exportsRoutes)
+priv.route('/', integrationsRoutes)
+priv.route('/', trends)
 api.route('/', priv)
 
 app.route('/api', api)

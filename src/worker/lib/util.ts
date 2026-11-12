@@ -9,6 +9,13 @@ export interface Env {
   ENVIRONMENT?: string
   RL_REGISTER?: string
   RL_LOGIN_IP?: string
+  FILES?: R2Bucket
+  MAX_DOC_MB?: string
+  // Credenciais de plataforma (opcionais). Cada organização também pode configurar as suas em /integrations/:kind.
+  RESEND_API_KEY?: string
+  EMAIL_FROM?: string
+  WHATSAPP_TOKEN?: string
+  WHATSAPP_PHONE_ID?: string
 }
 
 export class HttpError extends Error {

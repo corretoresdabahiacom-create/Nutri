@@ -1,10 +1,22 @@
 import { useState } from 'react'
 import { get } from '../api'
+import { Chart } from '../Chart'
 import { Err, Kpi, Page, UnitSelect, fmt, money, today, useLoad, useMe } from '../ui'
 
 function Block({ title, path, render }: { title: string; path: string; render: (d: any) => React.ReactNode }) {
   const { data, error } = useLoad(() => get(path), [path])
   return <div className="card"><h2 style={{ marginTop: 0 }}>{title}</h2><Err e={error} />{data ? <div className="grid">{render(data)}</div> : !error && <p className="muted">Carregando…</p>}</div>
+}
+function Trends({ unit }: { unit: string }) {
+  const list = useLoad(() => get('/trends'), [])
+  const [metric, setMetric] = useState(''), [days, setDays] = useState(30)
+  const key = metric || list.data?.items?.[0]?.key
+  const series = useLoad(() => (key ? get(`/trends/${key}?days=${days}${unit ? `&unit_id=${unit}` : ''}`) : Promise.resolve(null)), [key, days, unit])
+  if (!list.data?.items?.length) return null
+  return <div className="card"><h2 style={{ marginTop: 0 }}>Tendências</h2><Err e={series.error} />
+    <div className="row no-print"><select value={key} onChange={(e) => setMetric(e.target.value)} aria-label="Métrica">{list.data.items.map((m: any) => <option key={m.key} value={m.key}>{m.label}</option>)}</select>
+      <select value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="Período">{[30, 90, 180].map((d) => <option key={d} value={d}>{d} dias</option>)}</select></div>
+    {series.data && <Chart title={series.data.label} unit={series.data.unit} kind={key === 'production_cost_per_portion' || key === 'revenue' ? 'line' : 'bar'} points={series.data.points.map((p: any) => ({ label: p.date, value: p.value }))} />}</div>
 }
 export function Dashboard() {
   const { can, me } = useMe()
@@ -33,6 +45,7 @@ export function Dashboard() {
         <Kpi label="Nota média checklists" value={d.checklists_last_30d.avg_score ?? '—'} /><Kpi label="Recebimentos recusados" value={d.receiving_last_30d.refused} /></>} />}
       {can('reports.read') && <Block title="Consolidação multiunidade" path={`/consolidated/costs?from=${today().slice(0, 7)}-01`} render={(d) => <>
         <Kpi label="Unidades com movimento" value={d.units.length} /><Kpi label="Custo de produção" value={money(d.total.production_cost)} /><Kpi label="Custo/porção" value={money(d.total.cost_per_portion)} /><Kpi label="Receita" value={money(d.total.revenue)} /></>} />}
+      <Trends unit={unit} />
       {!mods.length && <p className="muted">Nenhum módulo habilitado.</p>}
     </Page>
   )

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { get, post } from '../api'
+import { downloadFile, get, post } from '../api'
 import { Badge, Err, Page, UnitSelect, today, useLoad, useMe } from '../ui'
 
 export function MealOrders() {
@@ -12,7 +12,7 @@ export function MealOrders() {
   const generate = async () => { setErr(null); try { await post('/meal-orders/generate', { unit_id: unit, date, meals: [gen] }); reload() } catch (x) { setErr(x) } }
   const swap = async (id: string, recipe_id: string) => { setErr(null); try { await (await import('../api')).put(`/meal-orders/${id}`, { recipe_id, reason: 'Substituição' }); reload() } catch (x) { setErr(x) } }
   return (
-    <Page title="Pedidos de refeição (hospitalar)" actions={<button className="sec" onClick={() => window.print()}>Imprimir mapa</button>}>
+    <Page title="Pedidos de refeição (hospitalar)" actions={<><button className="sec" disabled={!unit} onClick={() => downloadFile(`/meal-orders/export.pdf?unit_id=${unit}&date=${date}`, `mapa-${date}.pdf`).catch(setErr)}>Mapa em PDF</button><button className="sec" onClick={() => window.print()}>Imprimir</button></>}>
       <div className="row no-print"><div style={{ minWidth: 220 }}><UnitSelect value={unit} onChange={setUnit} kinds={['hospital', 'clinic']} /></div><input type="date" style={{ width: 160 }} value={date} onChange={(e) => setDate(e.target.value)} /></div>
       <Err e={error ?? err} />
       {can('hospital.prescribe') && <div className="card row no-print"><b>Gerar pedidos do dia:</b>

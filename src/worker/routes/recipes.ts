@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { type AppEnv, audit, need } from '../lib/auth'
 import { loadRow, type Res } from '../lib/crud'
 import { recipeCalc } from '../lib/calc'
+import { buildPdf, pdfResponse } from '../lib/pdf'
 import { bad, conflict, forbidden, nowIso, notFound, parseJson, readBody, uid, round } from '../lib/util'
 
 export const recipes = new Hono<AppEnv>()
@@ -90,6 +91,26 @@ recipes.get('/recipes/:id', need('recipes.read'), async (c) => {
   const row = await loadRow(c, RES, c.req.param('id'))
   const items = (await c.env.DB.prepare('SELECT id,food_id,gross_g,net_g,correction_factor,unit,notes FROM recipe_items WHERE recipe_id=? AND org_id=?').bind(row.id, c.get('auth').orgId).all()).results
   return c.json({ ...(await full(c, row)), items })
+})
+const n2 = (x: unknown, d = 1) => (x == null ? '-' : Number(x).toLocaleString('pt-BR', { maximumFractionDigits: d }))
+recipes.get('/recipes/:id/export.pdf', need('recipes.read'), async (c) => {
+  const row = await loadRow(c, RES, c.req.param('id'))
+  const calc = await recipeCalc(c.env, c.get('auth').orgId!, row.id)
+  if (!calc) throw notFound('Receita')
+  const money = (x: unknown) => (x == null ? 'sem preço' : 'R$ ' + Number(x).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
+  const bytes = await buildPdf({ title: `Ficha técnica: ${row.name}`, subtitle: `Versão ${row.version} - ${row.status === 'approved' ? 'APROVADA' : 'RASCUNHO (não aprovada)'}`,
+    blocks: [
+      { t: 'kv', rows: [['Porções', n2(calc.portions, 0)], ['Rendimento (g)', `${n2(calc.yield_g, 0)} (${calc.yield_source === 'informado' ? 'informado' : 'estimado por fator de cocção'})`], ['Peso da porção (g)', n2(calc.portion_g)], ['Custo total', calc.cost_complete ? money(calc.total_cost) : 'incompleto'], ['Custo por porção', calc.cost_complete ? money(calc.cost_per_portion) : 'incompleto'], ['Alérgenos', calc.allergens.join(', ') || 'nenhum declarado']] },
+      ...(calc.cost_complete ? [] : [{ t: 'alert' as const, text: 'Custo incompleto: faltam preços para ' + calc.missing_prices.join(', ') }]),
+      ...(calc.nutrition_complete ? [] : [{ t: 'alert' as const, text: 'Nutrição incompleta: faltam dados para ' + calc.missing_nutrition.join(', ') + '. Valores abaixo somam apenas o que tem fonte.' }]),
+      { t: 'h', text: 'Ingredientes' },
+      { t: 'table', head: ['Ingrediente', 'Bruto (g)', 'Líquido (g)', 'FC', 'R$/kg', 'Custo'], widths: [4, 1.2, 1.2, 0.8, 1.2, 1.2], rows: calc.items.map((i) => [i.food_name, n2(i.gross_g, 0), n2(i.net_g, 0), n2(i.correction_factor, 2), i.price_per_kg == null ? '-' : n2(i.price_per_kg, 2), i.cost == null ? '-' : n2(i.cost, 2)]) },
+      { t: 'h', text: 'Informação nutricional por porção' },
+      { t: 'table', head: ['Energia (kcal)', 'Proteína (g)', 'Carboidrato (g)', 'Gordura (g)', 'Fibra (g)', 'Sódio (mg)'], rows: [[calc.nutrition_per_portion.energy_kcal, calc.nutrition_per_portion.protein_g, calc.nutrition_per_portion.carb_g, calc.nutrition_per_portion.fat_g, calc.nutrition_per_portion.fiber_g, calc.nutrition_per_portion.sodium_mg].map((x) => n2(x))] },
+      ...(row.method ? [{ t: 'h' as const, text: 'Modo de preparo' }, { t: 'p' as const, text: String(row.method) }] : [])
+    ] })
+  await audit(c, 'export', 'recipes', row.id, { format: 'pdf' })
+  return pdfResponse(bytes, `ficha-${row.id.slice(0, 8)}.pdf`)
 })
 recipes.get('/recipes/:id/versions', need('recipes.read'), async (c) => {
   const row = await loadRow(c, RES, c.req.param('id'))

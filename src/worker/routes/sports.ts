@@ -4,6 +4,7 @@ import { f, mountCrud, loadRow, type Res, serializeRow } from '../lib/crud'
 import { guardSubject, mountSubjectCrud } from '../lib/subject'
 import { recipeCalc, NUTRIENTS, type Totals } from '../lib/calc'
 import { decryptValue } from '../lib/crypto'
+import { buildPdf, pdfResponse } from '../lib/pdf'
 import { bad, conflict, nowIso, norm, notFound, num, parseJson, readBody, round, today, uid } from '../lib/util'
 
 export const sports = new Hono<AppEnv>()
@@ -186,6 +187,23 @@ sports.get('/meal-plans/:id', needAny('sports.read', 'clinical.read'), async (c)
   const s = await guardSubject(c, p.subject_type, p.subject_id, 'read')
   await audit(c, 'read', 'meal_plans', p.id)
   return c.json(await planView(c, p, s))
+})
+sports.get('/meal-plans/:id/export.pdf', needAny('sports.read', 'clinical.read'), async (c) => {
+  const p = await c.env.DB.prepare('SELECT * FROM meal_plans WHERE id=? AND org_id=?').bind(c.req.param('id'), c.get('auth').orgId).first<any>()
+  if (!p) throw notFound('Plano')
+  const s = await guardSubject(c, p.subject_type, p.subject_id, 'read')
+  const v = await planView(c, p, s)
+  const k = (x: unknown) => (x == null ? '-' : Number(x).toLocaleString('pt-BR', { maximumFractionDigits: 1 }))
+  const t = v.nutrition_total as any
+  const bytes = await buildPdf({ title: `Plano alimentar: ${v.name}`, subtitle: `${v.status === 'approved' ? 'APROVADO' : 'RASCUNHO - não aprovado'}${v.valid_from ? ' - vigência desde ' + v.valid_from : ''}`,
+    blocks: [
+      ...(v.allergy_conflicts.length ? [{ t: 'alert' as const, text: 'CONFLITO DE ALERGIA: ' + v.allergy_conflicts.map((x: any) => `${x.item} (${x.allergen})`).join('; ') }] : []),
+      { t: 'table', head: ['Refeição', 'Horário', 'Item', 'Qtd (g)', 'kcal', 'Prot (g)', 'Carb (g)', 'Gord (g)'], widths: [2, 1, 3.5, 1, 1, 1, 1, 1], rows: v.items.map((i: any) => [i.meal_name, i.meal_time ?? '', i.name, k(i.qty_g), k(i.nutrients.energy_kcal), k(i.nutrients.protein_g), k(i.nutrients.carb_g), k(i.nutrients.fat_g)]) },
+      { t: 'kv', rows: [['Total (só dados com fonte)', `${k(t.energy_kcal)} kcal | P ${k(t.protein_g)} g | C ${k(t.carb_g)} g | G ${k(t.fat_g)} g`]] },
+      ...(v.notes ? [{ t: 'p' as const, text: String(v.notes) }] : [])
+    ] })
+  await audit(c, 'export', 'meal_plans', p.id, { format: 'pdf' })
+  return pdfResponse(bytes, `plano-${p.id.slice(0, 8)}.pdf`)
 })
 sports.post('/meal-plans', needAny('sports.write', 'clinical.write'), async (c) => {
   const a = c.get('auth'), b = await readBody(c)

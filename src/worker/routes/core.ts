@@ -6,6 +6,8 @@ import { b64, hashPassword, randomToken, sha256Hex, unb64 } from '../lib/crypto'
 import { HttpError, bad, conflict, csvEscape, forbidden, nowIso, notFound, parseJson, readBody, toCsv, uid } from '../lib/util'
 import { validatePassword } from './auth'
 import { encryptValue } from '../lib/crypto'
+import { getContent, maxDocBytes, putContent, removeContent } from '../lib/docs'
+import { deliver } from '../lib/outbound'
 
 export const core = new Hono<AppEnv>()
 
@@ -267,18 +269,21 @@ core.post('/documents', needAny('docs.write', 'quality.write', 'clinical.write',
   const mime = String(b.mime ?? '')
   const content = String(b.content_b64 ?? '')
   if (!DOC_MIMES.includes(mime)) throw bad('invalid_mime', `Tipo não permitido. Aceitos: ${DOC_MIMES.join(', ')}`)
-  if (!content || content.length > 1_400_000) throw bad('invalid_size', 'Arquivo vazio ou maior que ~1 MB')
+  const limit = maxDocBytes(c.env)
+  if (!content || content.length > Math.ceil(limit * 4 / 3) + 8) throw bad('invalid_size', `Arquivo vazio ou maior que ${Math.floor(limit / 1048576)} MB`)
   let bytes: Uint8Array
   try { bytes = unb64(content) } catch { throw bad('invalid_base64', 'Conteúdo base64 inválido') }
+  if (bytes.length > limit) throw bad('invalid_size', `Arquivo maior que ${Math.floor(limit / 1048576)} MB`)
   const unitId = b.unit_id ? String(b.unit_id) : null
   if (unitId && !(await c.env.DB.prepare('SELECT 1 FROM units WHERE id=? AND org_id=?').bind(unitId, a.orgId).first())) throw bad('invalid_unit', 'Unidade inválida')
   const rel = b.related_type ? String(b.related_type) : null
   if (rel && CLINICAL_REL.includes(rel) && !can(a, rel === 'athletes' ? 'sports.write' : 'clinical.write', unitId)) throw forbidden('Sem permissão para anexar a dados clínicos')
   const id = uid(), ts = nowIso()
-  await c.env.DB.prepare('INSERT INTO documents (id,org_id,unit_id,kind,title,mime,size,content_b64,related_type,related_id,created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
-    .bind(id, a.orgId, unitId, String(b.kind ?? 'file').slice(0, 30), String(b.title ?? 'documento').slice(0, 160), mime, bytes.length, content, rel, b.related_id ? String(b.related_id) : null, a.userId, ts, ts).run()
-  await audit(c, 'create', 'documents', id, { mime, size: bytes.length, related_type: rel })
-  return c.json({ id, size: bytes.length }, 201)
+  const st = await putContent(c.env, id, bytes)
+  await c.env.DB.prepare('INSERT INTO documents (id,org_id,unit_id,kind,title,mime,size,content_b64,storage,chunk_count,related_type,related_id,created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+    .bind(id, a.orgId, unitId, String(b.kind ?? 'file').slice(0, 30), String(b.title ?? 'documento').slice(0, 160), mime, bytes.length, st.content_b64, st.storage, st.chunks, rel, b.related_id ? String(b.related_id) : null, a.userId, ts, ts).run()
+  await audit(c, 'create', 'documents', id, { mime, size: bytes.length, related_type: rel, storage: st.storage })
+  return c.json({ id, size: bytes.length, storage: st.storage }, 201)
 })
 core.get('/documents', needAny('docs.read', 'quality.read', 'clinical.read', 'sports.read'), async (c) => {
   const a = c.get('auth')
@@ -292,7 +297,7 @@ core.get('/documents/:id/content', async (c) => {
   const d = await c.env.DB.prepare('SELECT * FROM documents WHERE id=? AND org_id=?').bind(c.req.param('id'), a.orgId).first<any>()
   if (!d || !docAccess(a, d)) throw notFound('Documento')
   await audit(c, 'download', 'documents', d.id, { related_type: d.related_type })
-  return new Response(unb64(d.content_b64), {
+  return new Response(await getContent(c.env, d), {
     headers: { 'Content-Type': d.mime, 'Content-Disposition': `attachment; filename="${String(d.title).replace(/[^\w.\-]+/g, '_')}"`, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-store' }
   })
 })
@@ -300,34 +305,32 @@ core.delete('/documents/:id', needAny('docs.write', 'quality.write'), async (c) 
   const a = c.get('auth')
   const d = await c.env.DB.prepare('SELECT * FROM documents WHERE id=? AND org_id=?').bind(c.req.param('id'), a.orgId).first<any>()
   if (!d || !docAccess(a, d)) throw notFound('Documento')
+  await removeContent(c.env, d)
   await c.env.DB.prepare('DELETE FROM documents WHERE id=?').bind(d.id).run()
   await audit(c, 'delete', 'documents', d.id)
   return c.json({ ok: true })
 })
-// Envio por e-mail exige confirmação explícita E uma integração real, que não existe neste MVP: não simulamos.
+// Envio por e-mail: exige confirmação explícita; dados clínicos exigem base legal informada. Só vira 'sent' com 2xx do provedor.
 core.post('/documents/:id/send-email', need('docs.write'), async (c) => {
-  const b = await readBody(c)
+  const a = c.get('auth'), b = await readBody(c)
   if (b.confirm !== true) throw bad('confirmation_required', 'Envie confirm:true para confirmar o envio')
-  throw new HttpError(501, 'integration_not_available', 'Envio de e-mail não está implementado/configurado neste MVP. Nenhuma mensagem foi enviada.')
-})
-
-// ---------- integrações (somente registro de configuração; nenhuma é simulada) ----------
-const INTEGRATIONS = ['google_calendar', 'email', 'whatsapp_business', 'pdv', 'hotel_pms', 'hospital_his', 'billing']
-core.get('/integrations', need('integrations.manage'), async (c) => {
-  const r = await c.env.DB.prepare('SELECT kind,status,updated_at FROM integrations WHERE org_id=?').bind(c.get('auth').orgId).all<any>()
-  const m = new Map(r.results.map((x) => [x.kind, x]))
-  return c.json({ items: INTEGRATIONS.map((k) => ({ kind: k, status: m.get(k)?.status ?? 'not_configured', implemented: false, note: 'Integração ainda não implementada: apenas a configuração é guardada.' })) })
-})
-core.put('/integrations/:kind', need('integrations.manage'), async (c) => {
-  const a = c.get('auth'), kind = c.req.param('kind')
-  if (!INTEGRATIONS.includes(kind)) throw notFound('Integração')
-  const b = await readBody(c)
+  const to = String(b.to ?? '').trim()
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) throw bad('invalid_field', 'Destinatário inválido')
+  const d = await c.env.DB.prepare('SELECT * FROM documents WHERE id=? AND org_id=?').bind(c.req.param('id'), a.orgId).first<any>()
+  if (!d || !docAccess(a, d)) throw notFound('Documento')
+  const clinical = CLINICAL_REL.includes(d.related_type)
+  if (clinical && !String(b.legal_basis ?? '').trim()) throw bad('legal_basis_required', 'Documento clínico: informe a base legal/finalidade (legal_basis) do compartilhamento')
+  if (d.size > 7 * 1024 * 1024) throw bad('too_large', 'Documento grande demais para anexo de e-mail')
   const id = uid(), ts = nowIso()
-  const enc = await encryptValue(c.env, b.config ?? {}, `integrations.config_enc.${a.orgId}.${kind}`)
-  await c.env.DB.prepare('INSERT INTO integrations (id,org_id,kind,status,config_enc,created_at,updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(org_id,kind) DO UPDATE SET config_enc=excluded.config_enc,status=excluded.status,updated_at=excluded.updated_at')
-    .bind(id, a.orgId, kind, 'configured_unverified', enc, ts, ts).run()
-  await audit(c, 'configure', 'integrations', kind)
-  return c.json({ ok: true, status: 'configured_unverified', implemented: false })
+  const bytes = await getContent(c.env, d)
+  await c.env.DB.prepare("INSERT INTO outbound_messages (id,org_id,channel,to_addr,subject,body,payload,status,next_attempt_at,related_type,related_id,legal_basis,confirmed_by,created_by,created_at,updated_at) VALUES (?,?,'email',?,?,?,?,'queued',?,'documents',?,?,?,?,?,?)")
+    .bind(id, a.orgId, to, String(b.subject ?? d.title).slice(0, 200), String(b.message ?? 'Segue documento em anexo.').slice(0, 2000),
+      JSON.stringify({ attachments: [{ filename: String(d.title).replace(/[^\w.\-]+/g, '_'), content_b64: b64(bytes) }] }), ts, d.id, b.legal_basis ?? null, a.userId, a.userId, ts, ts).run()
+  const r = await deliver(c.env, id)
+  await audit(c, 'share', 'documents', d.id, { channel: 'email', outbox_id: id, status: r.status, clinical })
+  if (r.status === 'not_configured') throw new HttpError(424, 'integration_not_configured', 'E-mail não configurado para esta organização. Nenhuma mensagem foi enviada.')
+  if (!r.ok) throw new HttpError(502, 'delivery_failed', `O provedor recusou o envio: ${r.error}`, { outbox_id: id })
+  return c.json({ ok: true, outbox_id: id, status: 'sent', provider: r.provider })
 })
 
 // ---------- painel da plataforma (planos e organizações) ----------

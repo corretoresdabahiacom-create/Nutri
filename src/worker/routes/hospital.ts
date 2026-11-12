@@ -4,6 +4,7 @@ import { f, mountCrud } from '../lib/crud'
 import { guardSubject } from '../lib/subject'
 import { recipeCalc } from '../lib/calc'
 import { decryptValue } from '../lib/crypto'
+import { buildPdf, pdfResponse } from '../lib/pdf'
 import { bad, conflict, nowIso, norm, notFound, parseJson, readBody, today, uid } from '../lib/util'
 
 export const hospital = new Hono<AppEnv>()
@@ -240,6 +241,18 @@ hospital.get('/meal-orders', need('hospital.read'), async (c) => {
   const items = []
   for (const o of rows) { const p = await c.env.DB.prepare('SELECT * FROM patients WHERE id=?').bind(o.patient_id).first<any>(); items.push(await orderView(c, o, p)) }
   return c.json({ items })
+})
+hospital.get('/meal-orders/export.pdf', need('hospital.read'), async (c) => {
+  const a = c.get('auth'), q = new URL(c.req.url).searchParams
+  const unitId = await requireUnit(c, 'hospital.read', q.get('unit_id')), date = q.get('date') ?? today()
+  const rows = (await c.env.DB.prepare('SELECT * FROM meal_orders WHERE org_id=? AND unit_id=? AND date=? ORDER BY meal_type, scheduled_time LIMIT 1000').bind(a.orgId, unitId, date).all<any>()).results
+  const views = []
+  for (const o of rows) views.push(await orderView(c, o, await c.env.DB.prepare('SELECT * FROM patients WHERE id=?').bind(o.patient_id).first<any>()))
+  const bytes = await buildPdf({ title: `Mapa de refeições - ${date}`, landscape: true, subtitle: 'Documento com dados de pacientes: manusear e descartar conforme a LGPD.',
+    blocks: [{ t: 'table', head: ['Refeição', 'Horário', 'Leito', 'Paciente', 'Consistência', 'Via', 'ALERGIAS', 'Conflitos', 'Status'], widths: [1.2, 0.8, 0.8, 2.4, 1.2, 0.9, 2, 2.2, 1],
+      rows: views.map((v: any) => [v.meal_type, v.scheduled_time ?? '', v.patient.bed_id ? String(v.patient.bed_id).slice(0, 6) : '', v.patient.name, v.patient.consistency, v.patient.feeding_route, (v.allergies ?? (v.allergy_alert ? ['sim'] : [])).join(', '), (v.conflicts ?? []).map((x: any) => x.message ?? x.type ?? x.rule ?? '').filter(Boolean).join('; '), v.status]) }] })
+  await audit(c, 'export', 'meal_orders', unitId, { format: 'pdf', date, rows: views.length })
+  return pdfResponse(bytes, `mapa-${date}.pdf`)
 })
 hospital.get('/meal-orders/:id', need('hospital.read'), async (c) => {
   const o = await loadOrder(c, c.req.param('id'), 'hospital.read')

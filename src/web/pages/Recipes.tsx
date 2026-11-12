@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { get, post } from '../api'
+import { downloadFile, get, post } from '../api'
 import { Badge, Err, Page, fmt, money, useLoad, useMe } from '../ui'
 
 export function Recipes() {
@@ -47,7 +47,7 @@ function RecipeDetail({ id, onChange }: { id: string; onChange: () => void }) {
   return (
     <div className="card">
       <div className="top"><h2 style={{ margin: 0 }}>{data.name} <Badge v={data.status} text={`${data.status} • v${data.version}`} /></h2>
-        <div className="row no-print"><button className="sec" onClick={() => window.print()}>Imprimir / PDF</button><button className="sec" onClick={() => act(`/recipes/${id}/duplicate`)}>Duplicar</button></div></div>
+        <div className="row no-print"><button className="sec" onClick={() => downloadFile(`/recipes/${id}/export.pdf`, 'ficha-tecnica.pdf').catch(setErr)}>Baixar PDF</button><button className="sec" onClick={() => window.print()}>Imprimir</button><button className="sec" onClick={() => act(`/recipes/${id}/duplicate`)}>Duplicar</button></div></div>
       <Err e={err ?? error} />
       {c && <><div className="grid"><div className="kpi"><b>{money(c.cost_per_portion)}</b><span>Custo por porção {!c.cost_complete && '(INCOMPLETO)'}</span></div><div className="kpi"><b>{money(c.cost_per_kg)}</b><span>Custo por kg</span></div>
         <div className="kpi"><b>{fmt(c.nutrition_per_portion.energy_kcal, 0)} kcal</b><span>Por porção ({fmt(c.portion_g, 0)} g)</span></div><div className="kpi"><b>{fmt(c.loss_pct, 1)}%</b><span>Perda / rendimento {fmt(c.yield_g, 0)} g</span></div></div>

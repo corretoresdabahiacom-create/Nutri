@@ -6,6 +6,7 @@ import { decryptValue } from '../lib/crypto'
 import { randomToken, sha256Hex } from '../lib/crypto'
 import { bad, conflict, nowIso, norm, notFound, num, parseJson, readBody, round, today, uid, csvEscape, toCsv } from '../lib/util'
 import { rateLimit } from '../lib/auth'
+import { buildPdf, pdfResponse } from '../lib/pdf'
 
 export const menus = new Hono<AppEnv>()
 export const publicMenus = new Hono<AppEnv>()
@@ -193,6 +194,20 @@ menus.get('/menus/:id/export.csv', need('menus.read'), async (c) => {
     ['data', 'refeicao', 'secao', 'preparacao', 'alergenos', 'kcal_porcao', 'custo_porcao'])
   await audit(c, 'export', 'menus', m.id, { format: 'csv' })
   return new Response(csv, { headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="cardapio-${m.id.slice(0, 8)}.csv"`, 'Cache-Control': 'no-store' } })
+})
+
+menus.get('/menus/:id/export.pdf', need('menus.read'), async (c) => {
+  const m = await loadMenu(c, c.req.param('id'), 'menus.read')
+  const v = await menuView(c, m)
+  const k = (x: unknown) => (x == null ? '-' : Number(x).toLocaleString('pt-BR', { maximumFractionDigits: 2 }))
+  const bytes = await buildPdf({ title: `Cardápio: ${m.name}`, landscape: true, subtitle: `Versão ${m.version} - ${m.status}${m.date_from ? ` - ${m.date_from} a ${m.date_to ?? ''}` : ''}`,
+    blocks: [
+      ...(v.issues?.length ? [{ t: 'alert' as const, text: 'Pendências: ' + v.issues.map((i: any) => `${i.recipe}: ${i.problems.join(', ')}`).join(' | ') }] : []),
+      { t: 'table', head: ['Data', 'Refeição', 'Seção', 'Preparação', 'Alérgenos', 'kcal/porção', 'Custo/porção'], widths: [1.1, 1.2, 1.2, 3, 2.4, 1, 1], rows: v.items.map((i: any) => [i.date ?? '', i.meal_type ?? '', i.section ?? '', i.recipe ?? '', (i.allergens ?? []).join(', '), k(i.nutrition_per_portion?.energy_kcal), i.cost_per_portion == null ? '-' : k(i.cost_per_portion)]) },
+      { t: 'p', text: `Custo total estimado: ${v.cost_complete ? 'R$ ' + k(v.total_cost) : 'incompleto (há preparações sem preço)'}` }
+    ] })
+  await audit(c, 'export', 'menus', m.id, { format: 'pdf' })
+  return pdfResponse(bytes, `cardapio-${m.id.slice(0, 8)}.pdf`)
 })
 
 /** Endpoint público (sem login): só cardápio publicado, vigente e acessado pelo token; sem custos nem dados de pacientes. */

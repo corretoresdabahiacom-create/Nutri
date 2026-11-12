@@ -29,6 +29,7 @@ export const post = <T = any>(p: string, b?: unknown) => api<T>('POST', p, b ?? 
 export const put = <T = any>(p: string, b?: unknown) => api<T>('PUT', p, b ?? {})
 export const del = <T = any>(p: string) => api<T>('DELETE', p)
 
+export const downloadFile = downloadCsv
 export async function downloadCsv(path: string, filename: string) {
   const res = await fetch('/api' + path, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
   if (!res.ok) throw new ApiError(res.status, 'export_failed', 'Falha na exportação')
