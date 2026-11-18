@@ -4,3 +4,6 @@ dist
 .dev.vars
 *.log
 .env
+e2e-report
+test-results
+.wrangler

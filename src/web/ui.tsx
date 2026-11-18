@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import { get } from './api'
 
 export interface Me {
-  user: { id: string; email: string; name: string; mfa_enabled: boolean }
+  user: { id: string; email: string; name: string; mfa_enabled: boolean; is_platform_admin?: boolean }
   organization: { id: string; name: string; ai_enabled: boolean; require_mfa: boolean; plan: string } | null
   modules: string[]; permissions: string[]
 }

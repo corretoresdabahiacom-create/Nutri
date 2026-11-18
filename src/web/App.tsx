@@ -18,6 +18,15 @@ import { Checklists } from './pages/Quality2'
 import { Purchasing } from './pages/Purchasing'
 import { Access } from './pages/Access'
 import { Imports } from './pages/Imports'
+import { Prescriptions } from './pages/Prescriptions'
+import { Documents } from './pages/Documents'
+import { Integrations } from './pages/Integrations'
+import { Planning } from './pages/Planning'
+import { AiPage } from './pages/AiPage'
+import { Hospitality } from './pages/Hospitality'
+import { Maps } from './pages/Maps'
+import { Notifications } from './pages/Notifications'
+import { Admin } from './pages/Admin'
 
 const SPECIAL: { path: string; label: string; group: string; perm: string; el: React.ReactElement }[] = [
   { path: 'recipes', label: 'Fichas técnicas', group: 'Cadastros', perm: 'recipes.read', el: <Recipes /> },
@@ -31,7 +40,15 @@ const SPECIAL: { path: string; label: string; group: string; perm: string; el: R
   { path: 'quality', label: 'Qualidade', group: 'Qualidade', perm: 'quality.read', el: <Quality /> },
   { path: 'checklists', label: 'Checklists', group: 'Qualidade', perm: 'quality.read', el: <Checklists /> },
   { path: 'imports', label: 'Importar CSV', group: 'Cadastros', perm: 'foods.write', el: <Imports /> },
-  { path: 'access', label: 'Usuários e papéis', group: 'Conta', perm: 'roles.manage', el: <Access /> }
+  { path: 'prescriptions', label: 'Prescrição dietética', group: 'Hospitalar', perm: 'hospital.prescribe', el: <Prescriptions /> },
+  { path: 'maps', label: 'Mapas do dia', group: 'Hospitalar', perm: 'hospital.read', el: <Maps /> },
+  { path: 'planning', label: 'Planejamento e demanda', group: 'UAN', perm: 'uan.read', el: <Planning /> },
+  { path: 'guests', label: 'Restrições (resumo e links)', group: 'Hotel/Resort', perm: 'guests.write', el: <Hospitality /> },
+  { path: 'ai', label: 'IA assistiva', group: 'Cardápios', perm: 'ai.use', el: <AiPage /> },
+  { path: 'documents', label: 'Documentos', group: 'Sistema', perm: 'docs.read', el: <Documents /> },
+  { path: 'integrations', label: 'Integrações', group: 'Sistema', perm: 'integrations.manage', el: <Integrations /> },
+  { path: 'notifications', label: 'Notificações', group: 'Sistema', perm: 'notifications.read', el: <Notifications /> },
+  { path: 'access', label: 'Usuários e papéis', group: 'Sistema', perm: 'roles.manage', el: <Access /> }
 ]
 
 export function App() {
@@ -56,7 +73,7 @@ export function App() {
             <div className="brand"><i /> NutriVida Pro</div>
             {portalOnly ? <NavLink to="/portal">Meu portal</NavLink> : <><NavLink to="/" end>Painel</NavLink>
               {groups.map((g) => <div key={g}><div className="grp">{g}</div>{items.filter((i) => i.group === g).map((i) => <NavLink key={i.path} to={'/' + i.path}>{i.label}</NavLink>)}</div>)}
-              <div className="grp">Conta</div><NavLink to="/settings">Configurações</NavLink></>}
+              <div className="grp">Conta</div><NavLink to="/settings">Configurações</NavLink>{me.user.is_platform_admin && <NavLink to="/admin">Plataforma (planos)</NavLink>}</>}
             <a href="#" onClick={(e) => { e.preventDefault(); logout() }}>Sair ({me.user.name})</a>
           </nav>
           <main className="main">
@@ -65,6 +82,7 @@ export function App() {
               <Route path="/" element={portalOnly ? <Navigate to="/portal" /> : <Dashboard />} />
               <Route path="/portal" element={<Portal />} />
               <Route path="/settings" element={<Settings />} />
+              {me.user.is_platform_admin && <Route path="/admin" element={<Admin />} />}
               {Object.entries(RESOURCES).map(([k, r]) => <Route key={k} path={'/r/' + k} element={<ResourcePage cfg={r} />} />)}
               {SPECIAL.map((s) => <Route key={s.path} path={'/' + s.path} element={s.el} />)}
               <Route path="*" element={<Navigate to="/" />} />
