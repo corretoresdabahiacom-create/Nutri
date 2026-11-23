@@ -13,8 +13,48 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+  e2e:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, mobile-chrome, firefox, webkit, mobile-safari]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npx playwright install --with-deps ${{ matrix.browser == 'mobile-chrome' && 'chromium' || matrix.browser == 'mobile-safari' && 'webkit' || matrix.browser }}
+      - name: Segredo local de teste (não é segredo real)
+        run: echo "DATA_KEY=$(openssl rand -base64 32)" > .dev.vars
+      - run: npm run build
+      - run: npx playwright test
+        env: { E2E_BROWSERS: "${{ matrix.browser }}", CI: "true" }
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-${{ matrix.browser }}
+          path: |
+            e2e-report
+            test-results
+  backup-restore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: Banco local com dados de demonstração, backup cifrado e restauração verificada
+        run: |
+          echo "DATA_KEY=$(openssl rand -base64 32)" > .dev.vars
+          npx wrangler d1 migrations apply nutrivida --local --persist-to .wrangler/backup-src
+          (npx wrangler dev --port 8799 --persist-to .wrangler/backup-src > /tmp/wd.log 2>&1 &)
+          npx wait-on http-get://localhost:8799/api/health --timeout 90000
+          node --experimental-strip-types scripts/seed-demo.ts http://localhost:8799 ci@example.com 'Ci-Senha-123!'
+          pkill -f "wrangler dev" || true
+          BACKUP_KEY="$(openssl rand -base64 24)" node scripts/backup.mjs verify
   deploy:
-    needs: test
+    needs: [test, e2e, backup-restore]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     env:

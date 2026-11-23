@@ -146,3 +146,13 @@ describe('rate limiting', () => {
     expect(r).toEqual([true, true, true, false, false])
   })
 })
+
+describe('OpenAPI gerado das rotas', () => {
+  it('lista rotas reais, marca as públicas sem segurança e exige bearer nas demais', async () => {
+    const r = await get('/api/openapi.json'); expect(r.status).toBe(200)
+    expect(r.data.openapi).toBe('3.0.3'); expect(Object.keys(r.data.paths).length).toBeGreaterThan(150)
+    expect(r.data.paths['/recipes/{id}/export.pdf'].get.security).toEqual([{ bearer: [] }])
+    expect(r.data.paths['/auth/login'].post.security).toEqual([])
+    expect(r.data.paths['/inbound/pdv'].post.security).toEqual([])
+  })
+})

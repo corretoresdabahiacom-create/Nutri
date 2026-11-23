@@ -89,3 +89,10 @@ test('e-mail sem integração configurada é recusado, nunca "enviado"', async (
   await page.getByRole('button', { name: 'Enviar', exact: true }).click()
   await expect(page.locator('.err')).toContainText(/não configurado|Nenhuma mensagem/i)
 })
+
+test('cabeçalhos de segurança do site (CSP, nosniff, frame-ancestors)', async ({ page }) => {
+  const r = await page.request.get('/')
+  const h = r.headers()
+  expect(h['content-security-policy']).toContain("default-src 'self'"); expect(h['content-security-policy']).toContain("frame-ancestors 'none'")
+  expect(h['x-content-type-options']).toBe('nosniff'); expect(h['strict-transport-security']).toContain('max-age=')
+})

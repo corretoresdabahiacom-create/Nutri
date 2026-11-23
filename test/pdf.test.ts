@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { SELF } from 'cloudflare:test'
 import { get, newOrg, post, unit, userWithRole } from './helpers'
-import { buildPdf, safe } from '../src/worker/lib/pdf'
+import { buildPdf, responsibleLine, safe } from '../src/worker/lib/pdf'
+import { env } from 'cloudflare:test'
 import { PDFDocument } from 'pdf-lib'
 
 const raw = (p: string, t: string) => SELF.fetch('http://localhost' + p, { headers: { Authorization: 'Bearer ' + t } })
@@ -41,5 +42,23 @@ describe('PDF no servidor', () => {
     const portal = await userWithRole(a.token, 'paciente_portal')
     expect((await raw(`/api/meal-orders/export.pdf?unit_id=${ua}&date=2026-12-01`, portal.token)).status).toBe(403)
     expect((await get('/api/meal-orders', a.token)).status).toBe(200)
+  })
+  it('ordem de produção, estoque e auditoria em PDF; responsável técnico vem do cadastro profissional', async () => {
+    const o = await newOrg(); const u = await unit(o.token, 'UAN', 'uan')
+    const fd = (await post('/api/foods', o.token, { name: 'Feijão', ...FOOD })).data.id
+    const rc = (await post('/api/recipes', o.token, { name: 'Feijão', portions: 10, yield_g: 2000, items: [{ food_id: fd, net_g: 1000, gross_g: 1000 }] })).data.id
+    await post(`/api/recipes/${rc}/approve`, o.token, { nutrition_reviewed: true, allergens_reviewed: true })
+    const po = await post('/api/production-orders', o.token, { unit_id: u, date: '2026-12-01', meal_type: 'almoco', recipe_id: rc, planned_portions: 20 })
+    expect(po.status).toBe(201)
+    await isPdf(await raw(`/api/production-orders/${po.data.id}/export.pdf`, o.token))
+    await isPdf(await raw(`/api/stock/balance/export.pdf?unit_id=${u}`, o.token))
+    await isPdf(await raw('/api/audit?format=pdf', o.token))
+    const b = await newOrg()
+    expect((await raw(`/api/production-orders/${po.data.id}/export.pdf`, b.token)).status).toBe(404)
+    expect(await responsibleLine(env.DB, o.orgId, null)).toContain('ainda não aprovado')
+    expect(await responsibleLine(env.DB, o.orgId, o.userId)).toContain('registro profissional não cadastrado')
+    const ts = new Date().toISOString()
+    await env.DB.prepare("INSERT INTO professionals (id,org_id,user_id,council,council_number,created_at,updated_at) VALUES ('pr1',?,?,'CRN-5','12345',?,?)").bind(o.orgId, o.userId, ts, ts).run()
+    expect(await responsibleLine(env.DB, o.orgId, o.userId)).toMatch(/CRN-5 12345/)
   })
 })

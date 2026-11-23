@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { type AppEnv, audit, need } from '../lib/auth'
 import { loadRow, type Res } from '../lib/crud'
 import { recipeCalc } from '../lib/calc'
-import { buildPdf, pdfResponse } from '../lib/pdf'
+import { buildPdf, pdfResponse, responsibleLine } from '../lib/pdf'
 import { bad, conflict, forbidden, nowIso, notFound, parseJson, readBody, uid, round } from '../lib/util'
 
 export const recipes = new Hono<AppEnv>()
@@ -107,7 +107,8 @@ recipes.get('/recipes/:id/export.pdf', need('recipes.read'), async (c) => {
       { t: 'table', head: ['Ingrediente', 'Bruto (g)', 'Líquido (g)', 'FC', 'R$/kg', 'Custo'], widths: [4, 1.2, 1.2, 0.8, 1.2, 1.2], rows: calc.items.map((i) => [i.food_name, n2(i.gross_g, 0), n2(i.net_g, 0), n2(i.correction_factor, 2), i.price_per_kg == null ? '-' : n2(i.price_per_kg, 2), i.cost == null ? '-' : n2(i.cost, 2)]) },
       { t: 'h', text: 'Informação nutricional por porção' },
       { t: 'table', head: ['Energia (kcal)', 'Proteína (g)', 'Carboidrato (g)', 'Gordura (g)', 'Fibra (g)', 'Sódio (mg)'], rows: [[calc.nutrition_per_portion.energy_kcal, calc.nutrition_per_portion.protein_g, calc.nutrition_per_portion.carb_g, calc.nutrition_per_portion.fat_g, calc.nutrition_per_portion.fiber_g, calc.nutrition_per_portion.sodium_mg].map((x) => n2(x))] },
-      ...(row.method ? [{ t: 'h' as const, text: 'Modo de preparo' }, { t: 'p' as const, text: String(row.method) }] : [])
+      ...(row.method ? [{ t: 'h' as const, text: 'Modo de preparo' }, { t: 'p' as const, text: String(row.method) }] : []),
+      { t: 'p' as const, text: await responsibleLine(c.env.DB, c.get('auth').orgId!, row.approved_by) }
     ] })
   await audit(c, 'export', 'recipes', row.id, { format: 'pdf' })
   return pdfResponse(bytes, `ficha-${row.id.slice(0, 8)}.pdf`)

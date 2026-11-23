@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { get, post } from '../api'
+import { downloadFile, get, post } from '../api'
 import { Badge, Err, Page, UnitSelect, fmt, money, today, useLoad, useMe } from '../ui'
 
 export function Stock() {
@@ -9,7 +9,7 @@ export function Stock() {
   const foods = useLoad(() => get('/foods?limit=500'), [])
   const entry = async (e: React.FormEvent) => { e.preventDefault(); setErr(null); try { await post('/stock/entries', { unit_id: unit, food_id: f.food_id, qty_g: Number(f.qty_g), lot_code: f.lot_code, expiry: f.expiry || null, unit_cost_per_kg: Number(f.unit_cost_per_kg || 0) }); bal.reload() } catch (x) { setErr(x) } }
   return (
-    <Page title="Estoque (FEFO)" actions={<div style={{ minWidth: 220 }}><UnitSelect value={unit} onChange={setUnit} /></div>}>
+    <Page title="Estoque (FEFO)" actions={<><button className="sec" disabled={!unit} onClick={() => downloadFile(`/stock/balance/export.pdf?unit_id=${unit}`, 'estoque.pdf').catch(setErr)}>PDF</button><div style={{ minWidth: 220 }}><UnitSelect value={unit} onChange={setUnit} /></div></>}>
       <Err e={err ?? bal.error} />
       {can('stock.write') && <form className="card form" onSubmit={entry}><div className="field"><label>Alimento</label><select value={f.food_id} onChange={(e) => setF({ ...f, food_id: e.target.value })} required><option value="">—</option>{(foods.data?.items ?? []).map((x: any) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></div>
         {(['qty_g', 'lot_code', 'unit_cost_per_kg'] as const).map((k) => <div className="field" key={k}><label>{({ qty_g: 'Quantidade (g)', lot_code: 'Lote', unit_cost_per_kg: 'Custo R$/kg' })[k]}</label><input value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} required={k !== 'unit_cost_per_kg'} /></div>)}
@@ -47,7 +47,7 @@ export function Production() {
       <div className="tw"><table><thead><tr><th>Data</th><th>Refeição</th><th>Porções</th><th>Status</th><th>Custo plan./real</th><th>Faltas de estoque</th><th></th></tr></thead>
         <tbody>{(list.data?.items ?? []).map((o: any) => <tr key={o.id}><td>{o.date}</td><td>{o.meal_type}</td><td>{o.planned_portions}{o.produced_portions != null && ` → ${o.produced_portions}`}</td><td><Badge v={o.status} /></td><td>{money(o.planned_cost)} / {money(o.actual_cost)}</td>
           <td>{o.stock_shortfalls.length ? o.stock_shortfalls.map((s: any) => <div key={s.food_id}><Badge v="warning" text={`${s.name}: faltam ${fmt(s.needed_g - s.available_g, 0)} g`} /></div>) : '—'}</td>
-          <td className="row">{o.status === 'planned' && can('production.write') && <><button onClick={() => act(() => post(`/production-orders/${o.id}/start`))}>Iniciar (baixa FEFO)</button><button className="sec" onClick={() => act(() => post(`/production-orders/${o.id}/cancel`))}>Cancelar</button></>}
+          <td className="row"><button className="sec" onClick={() => downloadFile(`/production-orders/${o.id}/export.pdf`, 'ordem-producao.pdf').catch(setErr)}>PDF</button>{o.status === 'planned' && can('production.write') && <><button onClick={() => act(() => post(`/production-orders/${o.id}/start`))}>Iniciar (baixa FEFO)</button><button className="sec" onClick={() => act(() => post(`/production-orders/${o.id}/cancel`))}>Cancelar</button></>}
             {o.status === 'in_progress' && can('production.write') && <button onClick={() => { const p = Number(prompt('Porções produzidas:')); if (p > 0) act(() => post(`/production-orders/${o.id}/complete`, { produced_portions: p, leftovers_g: Number(prompt('Sobras (g):', '0') || 0), waste_g: Number(prompt('Desperdício (g):', '0') || 0) })) }}>Concluir</button>}</td></tr>)}</tbody></table></div>
     </Page>
   )

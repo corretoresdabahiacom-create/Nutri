@@ -84,3 +84,11 @@ export async function buildPdf(doc: PdfDoc): Promise<Uint8Array> {
 
 export const pdfResponse = (bytes: Uint8Array, filename: string) =>
   new Response(bytes, { headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${filename.replace(/[^\w.\-]+/g, '_')}"`, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' } })
+
+/** Linha de responsabilidade técnica: nome e registro no conselho (se cadastrado) de quem aprovou. Sem cadastro, informa que falta. */
+export async function responsibleLine(db: D1Database, orgId: string, userId: string | null | undefined): Promise<string> {
+  if (!userId) return 'Responsável técnico: documento ainda não aprovado.'
+  const r = await db.prepare('SELECT u.name, p.council, p.council_number FROM users u LEFT JOIN professionals p ON p.user_id=u.id AND p.org_id=? WHERE u.id=?').bind(orgId, userId).first<any>()
+  if (!r) return 'Responsável técnico: usuário não encontrado.'
+  return `Aprovado por: ${r.name}${r.council && r.council_number ? ` - ${r.council} ${r.council_number}` : ' (registro profissional não cadastrado)'}`
+}

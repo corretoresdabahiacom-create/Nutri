@@ -8,6 +8,7 @@ import { validatePassword } from './auth'
 import { encryptValue } from '../lib/crypto'
 import { getContent, maxDocBytes, putContent, removeContent } from '../lib/docs'
 import { deliver } from '../lib/outbound'
+import { buildPdf, pdfResponse } from '../lib/pdf'
 
 export const core = new Hono<AppEnv>()
 
@@ -235,6 +236,12 @@ core.get('/audit', need('audit.read'), async (c) => {
   if (q.get('to')) { where.push('ts<=?'); params.push(q.get('to')) }
   const limit = Math.min(Number(q.get('limit') ?? 100) || 100, 1000)
   const r = await c.env.DB.prepare(`SELECT id,user_id,action,entity,entity_id,meta,ip,ts FROM audit_log WHERE ${where.join(' AND ')} ORDER BY ts DESC LIMIT ?`).bind(...params, limit).all<any>()
+  if (q.get('format') === 'pdf') {
+    await audit(c, 'export', 'audit_log', undefined, { rows: r.results.length, format: 'pdf' })
+    const bytes = await buildPdf({ title: 'Relatório de auditoria', landscape: true, subtitle: `${r.results.length} registros mais recentes${q.get('from') ? ' a partir de ' + q.get('from') : ''}`,
+      blocks: [{ t: 'table', head: ['Data/hora (UTC)', 'Usuário', 'Ação', 'Entidade', 'ID', 'IP'], widths: [2, 2.4, 1.2, 1.6, 2.4, 1.4], rows: r.results.map((x: any) => [String(x.ts).slice(0, 19).replace('T', ' '), x.user_id ?? '', x.action, x.entity, x.entity_id ?? '', x.ip ?? '']) }] })
+    return pdfResponse(bytes, 'auditoria.pdf')
+  }
   if (q.get('format') === 'csv') {
     await audit(c, 'export', 'audit_log', undefined, { rows: r.results.length })
     return new Response(toCsv(r.results as any), { headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="auditoria.csv"', 'Cache-Control': 'no-store' } })

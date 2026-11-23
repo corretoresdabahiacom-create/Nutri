@@ -3,6 +3,7 @@ import { type AppCtx, type AppEnv, assertCan, audit, can, need, needAny, require
 import { f, mountCrud } from '../lib/crud'
 import { recipeCalc, scaleItems } from '../lib/calc'
 import { bad, conflict, nowIso, notFound, num, readBody, round, today, uid } from '../lib/util'
+import { buildPdf, pdfResponse } from '../lib/pdf'
 
 export const uan = new Hono<AppEnv>()
 const DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -300,6 +301,29 @@ async function loadProd(c: AppCtx, id: string, perm: string) {
   return o
 }
 uan.get('/production-orders/:id', need('production.read'), async (c) => c.json(prodView(await loadProd(c, c.req.param('id'), 'production.read'))))
+uan.get('/production-orders/:id/export.pdf', need('production.read'), async (c) => {
+  const o = prodView(await loadProd(c, c.req.param('id'), 'production.read'))
+  const rc = await c.env.DB.prepare('SELECT name FROM recipes WHERE id=?').bind(o.recipe_id).first<any>()
+  const k = (x: unknown, d = 1) => (x == null ? '-' : Number(x).toLocaleString('pt-BR', { maximumFractionDigits: d }))
+  const bytes = await buildPdf({ title: `Ordem de produção: ${rc?.name ?? o.recipe_id}`, subtitle: `${o.date} - ${o.meal_type} - ${o.planned_portions} porções - status ${o.status}`,
+    blocks: [
+      ...(o.stock_shortfalls.length ? [{ t: 'alert' as const, text: 'Estoque insuficiente para: ' + o.stock_shortfalls.map((s: any) => `${s.name} (falta ${k(s.needed_g - s.available_g, 0)} g)`).join('; ') }] : []),
+      { t: 'table', head: ['Ingrediente', 'Bruto (g)', 'Líquido (g)'], widths: [4, 1, 1], rows: o.ingredient_snapshot.map((i: any) => [i.food_name, k(i.gross_g, 0), k(i.net_g, 0)]) },
+      { t: 'kv', rows: [['Custo planejado', o.planned_cost == null ? 'incompleto (faltam preços)' : 'R$ ' + k(o.planned_cost, 2)], ['Custo real', o.actual_cost == null ? '-' : 'R$ ' + k(o.actual_cost, 2)], ['Produzido', o.produced_portions == null ? '-' : String(o.produced_portions)]] }
+    ] })
+  await audit(c, 'export', 'production_orders', o.id, { format: 'pdf' })
+  return pdfResponse(bytes, `producao-${o.id.slice(0, 8)}.pdf`)
+})
+uan.get('/stock/balance/export.pdf', need('stock.read'), async (c) => {
+  const q = new URL(c.req.url).searchParams, u = await needUnit(c, 'stock.read', q.get('unit_id'))
+  const items = await balance(c, u, Number(q.get('expiring_days') ?? 7) || 7)
+  const k = (x: unknown, d = 0) => (x == null ? '-' : Number(x).toLocaleString('pt-BR', { maximumFractionDigits: d }))
+  const bytes = await buildPdf({ title: 'Posição de estoque', subtitle: `Emitido em ${today()} (validade considerada: ${q.get('expiring_days') ?? 7} dias)`, landscape: true,
+    blocks: [{ t: 'table', head: ['Alimento', 'Disponível (g)', 'Vencido (g)', 'A vencer (g)', 'Mínimo (g)', 'Valor (R$)', 'Alerta'], widths: [4, 1.2, 1.2, 1.2, 1.2, 1.2, 1.6],
+      rows: items.map((i: any) => [i.name, k(i.available_g), k(i.expired_g), k(i.expiring_g), k(i.min_g), k(i.value, 2), [i.below_min ? 'abaixo do mínimo' : '', i.expired_g > 0 ? 'vencido' : ''].filter(Boolean).join(', ')]) }] })
+  await audit(c, 'export', 'stock', u, { format: 'pdf' })
+  return pdfResponse(bytes, `estoque-${today()}.pdf`)
+})
 uan.post('/production-orders/:id/start', need('production.write'), async (c) => {
   const o = await loadProd(c, c.req.param('id'), 'production.write')
   if (o.status !== 'planned') throw conflict('invalid_state', 'Somente ordens planejadas podem iniciar')

@@ -4,7 +4,7 @@ import { f, mountCrud, loadRow, type Res, serializeRow } from '../lib/crud'
 import { guardSubject, mountSubjectCrud } from '../lib/subject'
 import { recipeCalc, NUTRIENTS, type Totals } from '../lib/calc'
 import { decryptValue } from '../lib/crypto'
-import { buildPdf, pdfResponse } from '../lib/pdf'
+import { buildPdf, pdfResponse, responsibleLine } from '../lib/pdf'
 import { bad, conflict, nowIso, norm, notFound, num, parseJson, readBody, round, today, uid } from '../lib/util'
 
 export const sports = new Hono<AppEnv>()
@@ -200,7 +200,8 @@ sports.get('/meal-plans/:id/export.pdf', needAny('sports.read', 'clinical.read')
       ...(v.allergy_conflicts.length ? [{ t: 'alert' as const, text: 'CONFLITO DE ALERGIA: ' + v.allergy_conflicts.map((x: any) => `${x.item} (${x.allergen})`).join('; ') }] : []),
       { t: 'table', head: ['Refeição', 'Horário', 'Item', 'Qtd (g)', 'kcal', 'Prot (g)', 'Carb (g)', 'Gord (g)'], widths: [2, 1, 3.5, 1, 1, 1, 1, 1], rows: v.items.map((i: any) => [i.meal_name, i.meal_time ?? '', i.name, k(i.qty_g), k(i.nutrients.energy_kcal), k(i.nutrients.protein_g), k(i.nutrients.carb_g), k(i.nutrients.fat_g)]) },
       { t: 'kv', rows: [['Total (só dados com fonte)', `${k(t.energy_kcal)} kcal | P ${k(t.protein_g)} g | C ${k(t.carb_g)} g | G ${k(t.fat_g)} g`]] },
-      ...(v.notes ? [{ t: 'p' as const, text: String(v.notes) }] : [])
+      ...(v.notes ? [{ t: 'p' as const, text: String(v.notes) }] : []),
+      { t: 'p' as const, text: await responsibleLine(c.env.DB, c.get('auth').orgId!, v.approved_by) }
     ] })
   await audit(c, 'export', 'meal_plans', p.id, { format: 'pdf' })
   return pdfResponse(bytes, `plano-${p.id.slice(0, 8)}.pdf`)

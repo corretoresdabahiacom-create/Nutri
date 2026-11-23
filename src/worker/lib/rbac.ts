@@ -8,7 +8,7 @@ const FOODSERVICE: Module[] = ['uan', 'restaurant', 'hotel', 'resort', 'clinical
 const PREFIX_MODULES: Record<string, Module[]> = {
   org: ['core'], users: ['core'], roles: ['core'], units: ['core'], audit: ['core'], docs: ['core'], notifications: ['core'],
   foods: ['core'], recipes: ['core'], suppliers: ['core'], prices: ['core'], budget: ['core'], events: ['core'], reports: ['core'],
-  integrations: ['core'],
+  integrations: ['core'], lgpd: ['core'],
   sports: ['sports'],
   clinical: ['clinical'], hospital: ['clinical'],
   uan: ['uan'],
@@ -26,7 +26,7 @@ export function modulesForPerm(perm: string): Module[] {
 export const ALL_PERMS = [
   'org.manage', 'users.manage', 'roles.manage', 'units.manage', 'audit.read', 'docs.read', 'docs.write', 'notifications.read',
   'foods.read', 'foods.write', 'recipes.read', 'recipes.write', 'recipes.approve', 'suppliers.read', 'suppliers.write',
-  'prices.write', 'budget.manage', 'events.read', 'events.write', 'reports.read', 'reports.export', 'integrations.manage',
+  'prices.write', 'budget.manage', 'events.read', 'events.write', 'reports.read', 'reports.export', 'integrations.manage', 'lgpd.manage',
   'sports.read', 'sports.write', 'sports.approve', 'sports.supplements',
   'clinical.read', 'clinical.write', 'hospital.read', 'hospital.prescribe', 'hospital.confer', 'hospital.release',
   'hospital.produce', 'hospital.deliver', 'hospital.manage',
